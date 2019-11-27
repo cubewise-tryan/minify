@@ -1,10 +1,10 @@
-package html // import "github.com/tdewolff/minify/html"
+package html
 
 import (
 	"bytes"
 	"testing"
 
-	"github.com/tdewolff/parse/html"
+	"github.com/tdewolff/parse/v2/html"
 	"github.com/tdewolff/test"
 )
 

@@ -1,17 +1,17 @@
 // Package svg minifies SVG1.1 following the specifications at http://www.w3.org/TR/SVG11/.
-package svg // import "github.com/tdewolff/minify/svg"
+package svg
 
 import (
 	"bytes"
 	"io"
 
-	"github.com/tdewolff/minify"
-	minifyCSS "github.com/tdewolff/minify/css"
-	"github.com/tdewolff/parse"
-	"github.com/tdewolff/parse/buffer"
-	"github.com/tdewolff/parse/css"
-	"github.com/tdewolff/parse/svg"
-	"github.com/tdewolff/parse/xml"
+	"github.com/tdewolff/minify/v2"
+	minifyCSS "github.com/tdewolff/minify/v2/css"
+	"github.com/tdewolff/parse/v2"
+	"github.com/tdewolff/parse/v2/buffer"
+	"github.com/tdewolff/parse/v2/css"
+	"github.com/tdewolff/parse/v2/svg"
+	"github.com/tdewolff/parse/v2/xml"
 )
 
 var (
@@ -51,7 +51,6 @@ func (o *Minifier) Minify(m *minify.M, w io.Writer, r io.Reader, _ map[string]st
 	p := NewPathData(o)
 	minifyBuffer := buffer.NewWriter(make([]byte, 0, 64))
 	attrByteBuffer := make([]byte, 0, 64)
-	gStack := make([]bool, 0)
 
 	l := xml.NewLexer(r)
 	defer l.Restore()
@@ -59,7 +58,6 @@ func (o *Minifier) Minify(m *minify.M, w io.Writer, r io.Reader, _ map[string]st
 	tb := NewTokenBuffer(l)
 	for {
 		t := *tb.Shift()
-	SWITCH:
 		switch t.TokenType {
 		case xml.ErrorToken:
 			if l.Err() == io.EOF {
@@ -73,7 +71,9 @@ func (o *Minifier) Minify(m *minify.M, w io.Writer, r io.Reader, _ map[string]st
 				}
 			}
 		case xml.TextToken:
-			t.Data = parse.ReplaceMultipleWhitespace(parse.TrimWhitespace(t.Data))
+			t.Data = parse.ReplaceMultipleWhitespaceAndEntities(t.Data, xml.EntitiesMap, nil)
+			t.Data = parse.TrimWhitespace(t.Data)
+
 			if tag == svg.Style && len(t.Data) > 0 {
 				if err := m.MinifyMimetype(defaultStyleType, w, buffer.NewReader(t.Data), defaultStyleParams); err != nil {
 					if err != minify.ErrNotExist {
@@ -98,7 +98,9 @@ func (o *Minifier) Minify(m *minify.M, w io.Writer, r io.Reader, _ map[string]st
 			}
 			var useText bool
 			if t.Text, useText = xml.EscapeCDATAVal(&attrByteBuffer, t.Text); useText {
-				t.Text = parse.ReplaceMultipleWhitespace(parse.TrimWhitespace(t.Text))
+				t.Text = parse.ReplaceMultipleWhitespace(t.Text)
+				t.Text = parse.TrimWhitespace(t.Text)
+
 				if _, err := w.Write(t.Text); err != nil {
 					return err
 				}
@@ -113,40 +115,15 @@ func (o *Minifier) Minify(m *minify.M, w io.Writer, r io.Reader, _ map[string]st
 			}
 		case xml.StartTagToken:
 			tag = t.Hash
-			if containerTagMap[tag] { // skip empty containers
-				i := 0
-				for {
-					next := tb.Peek(i)
-					i++
-					if next.TokenType == xml.EndTagToken && next.Hash == tag || next.TokenType == xml.StartTagCloseVoidToken || next.TokenType == xml.ErrorToken {
-						for j := 0; j < i; j++ {
-							tb.Shift()
-						}
-						break SWITCH
-					} else if next.TokenType != xml.AttributeToken && next.TokenType != xml.StartTagCloseToken {
-						break
-					}
-				}
-				if tag == svg.G {
-					if tb.Peek(0).TokenType == xml.StartTagCloseToken {
-						gStack = append(gStack, false)
-						tb.Shift()
-						break
-					}
-					gStack = append(gStack, true)
-				}
-			} else if tag == svg.Metadata {
-				skipTag(tb, tag)
-				break
-			} else if tag == svg.Line {
-				o.shortenLine(tb, &t, p)
-			} else if tag == svg.Rect && !o.shortenRect(tb, &t, p) {
-				skipTag(tb, tag)
-				break
-			} else if tag == svg.Polygon || tag == svg.Polyline {
-				o.shortenPoly(tb, &t, p)
+			if tag == svg.Metadata {
+				t.Data = nil
+			} else if tag == svg.Rect {
+				o.shortenRect(tb, &t)
 			}
-			if _, err := w.Write(t.Data); err != nil {
+
+			if t.Data == nil {
+				skipTag(tb)
+			} else if _, err := w.Write(t.Data); err != nil {
 				return err
 			}
 		case xml.AttributeToken:
@@ -184,7 +161,7 @@ func (o *Minifier) Minify(m *minify.M, w io.Writer, r io.Reader, _ map[string]st
 			}
 
 			if tag == svg.Svg && attr == svg.ContentStyleType {
-				val = minify.ContentType(val)
+				val = minify.Mediatype(val)
 				defaultStyleType = val
 			} else if attr == svg.Style {
 				minifyBuffer.Reset()
@@ -266,13 +243,6 @@ func (o *Minifier) Minify(m *minify.M, w io.Writer, r io.Reader, _ map[string]st
 			}
 		case xml.EndTagToken:
 			tag = 0
-			if t.Hash == svg.G && len(gStack) > 0 {
-				if !gStack[len(gStack)-1] {
-					gStack = gStack[:len(gStack)-1]
-					break
-				}
-				gStack = gStack[:len(gStack)-1]
-			}
 			if len(t.Data) > 3+len(t.Text) {
 				t.Data[2+len(t.Text)] = '>'
 				t.Data = t.Data[:3+len(t.Text)]
@@ -301,134 +271,36 @@ func (o *Minifier) shortenDimension(b []byte) ([]byte, int) {
 	return b, 0
 }
 
-func (o *Minifier) shortenLine(tb *TokenBuffer, t *Token, p *PathData) {
-	x1, y1, x2, y2 := zeroBytes, zeroBytes, zeroBytes, zeroBytes
-	if attrs, replacee := tb.Attributes(svg.X1, svg.Y1, svg.X2, svg.Y2); replacee != nil {
-		if attrs[0] != nil {
-			x1 = minify.Number(attrs[0].AttrVal, o.Decimals)
-			attrs[0].Text = nil
-		}
-		if attrs[1] != nil {
-			y1 = minify.Number(attrs[1].AttrVal, o.Decimals)
-			attrs[1].Text = nil
-		}
-		if attrs[2] != nil {
-			x2 = minify.Number(attrs[2].AttrVal, o.Decimals)
-			attrs[2].Text = nil
-		}
-		if attrs[3] != nil {
-			y2 = minify.Number(attrs[3].AttrVal, o.Decimals)
-			attrs[3].Text = nil
-		}
-
-		d := make([]byte, 0, 5+len(x1)+len(y1)+len(x2)+len(y2))
-		d = append(d, 'M')
-		d = append(d, x1...)
-		d = append(d, ' ')
-		d = append(d, y1...)
-		d = append(d, 'L')
-		d = append(d, x2...)
-		d = append(d, ' ')
-		d = append(d, y2...)
-		d = append(d, 'z')
-		d = p.ShortenPathData(d)
-
-		t.Data = pathBytes
-		replacee.Text = dBytes
-		replacee.AttrVal = d
+func (o *Minifier) shortenRect(tb *TokenBuffer, t *Token) {
+	w, h := zeroBytes, zeroBytes
+	attrs := tb.Attributes(svg.Width, svg.Height)
+	if attrs[0] != nil {
+		n, _ := parse.Dimension(attrs[0].AttrVal)
+		w = minify.Number(attrs[0].AttrVal[:n], o.Decimals)
 	}
-}
-
-func (o *Minifier) shortenRect(tb *TokenBuffer, t *Token, p *PathData) bool {
-	if attrs, replacee := tb.Attributes(svg.X, svg.Y, svg.Width, svg.Height, svg.Rx, svg.Ry); replacee != nil && attrs[4] == nil && attrs[5] == nil {
-		x, y, w, h := zeroBytes, zeroBytes, zeroBytes, zeroBytes
-		if attrs[0] != nil {
-			x = minify.Number(attrs[0].AttrVal, o.Decimals)
-			attrs[0].Text = nil
-		}
-		if attrs[1] != nil {
-			y = minify.Number(attrs[1].AttrVal, o.Decimals)
-			attrs[1].Text = nil
-		}
-		if attrs[2] != nil {
-			w = minify.Number(attrs[2].AttrVal, o.Decimals)
-			attrs[2].Text = nil
-		}
-		if attrs[3] != nil {
-			h = minify.Number(attrs[3].AttrVal, o.Decimals)
-			attrs[3].Text = nil
-		}
-		if len(w) == 0 || w[0] == '0' || len(h) == 0 || h[0] == '0' {
-			return false
-		}
-
-		d := make([]byte, 0, 6+2*len(x)+len(y)+len(w)+len(h))
-		d = append(d, 'M')
-		d = append(d, x...)
-		d = append(d, ' ')
-		d = append(d, y...)
-		d = append(d, 'h')
-		d = append(d, w...)
-		d = append(d, 'v')
-		d = append(d, h...)
-		d = append(d, 'H')
-		d = append(d, x...)
-		d = append(d, 'z')
-		d = p.ShortenPathData(d)
-
-		t.Data = pathBytes
-		replacee.Text = dBytes
-		replacee.AttrVal = d
+	if attrs[1] != nil {
+		n, _ := parse.Dimension(attrs[1].AttrVal)
+		h = minify.Number(attrs[1].AttrVal[:n], o.Decimals)
 	}
-	return true
-}
-
-func (o *Minifier) shortenPoly(tb *TokenBuffer, t *Token, p *PathData) {
-	if attrs, replacee := tb.Attributes(svg.Points); replacee != nil && attrs[0] != nil {
-		points := attrs[0].AttrVal
-
-		i := 0
-		for i < len(points) && !(points[i] == ' ' || points[i] == ',' || points[i] == '\n' || points[i] == '\r' || points[i] == '\t') {
-			i++
-		}
-		for i < len(points) && (points[i] == ' ' || points[i] == ',' || points[i] == '\n' || points[i] == '\r' || points[i] == '\t') {
-			i++
-		}
-		for i < len(points) && !(points[i] == ' ' || points[i] == ',' || points[i] == '\n' || points[i] == '\r' || points[i] == '\t') {
-			i++
-		}
-		endMoveTo := i
-		for i < len(points) && (points[i] == ' ' || points[i] == ',' || points[i] == '\n' || points[i] == '\r' || points[i] == '\t') {
-			i++
-		}
-		startLineTo := i
-
-		if i == len(points) {
-			return
-		}
-
-		d := make([]byte, 0, len(points)+3)
-		d = append(d, 'M')
-		d = append(d, points[:endMoveTo]...)
-		d = append(d, 'L')
-		d = append(d, points[startLineTo:]...)
-		if t.Hash == svg.Polygon {
-			d = append(d, 'z')
-		}
-		d = p.ShortenPathData(d)
-
-		t.Data = pathBytes
-		replacee.Text = dBytes
-		replacee.AttrVal = d
+	if len(w) == 0 || w[0] == '0' || len(h) == 0 || h[0] == '0' {
+		t.Data = nil
 	}
 }
 
 ////////////////////////////////////////////////////////////////
 
-func skipTag(tb *TokenBuffer, tag svg.Hash) {
+func skipTag(tb *TokenBuffer) {
+	level := 0
 	for {
-		if t := *tb.Shift(); (t.TokenType == xml.EndTagToken || t.TokenType == xml.StartTagCloseVoidToken) && t.Hash == tag || t.TokenType == xml.ErrorToken {
+		if t := *tb.Shift(); t.TokenType == xml.ErrorToken {
 			break
+		} else if t.TokenType == xml.EndTagToken || t.TokenType == xml.StartTagCloseVoidToken {
+			if level == 0 {
+				break
+			}
+			level--
+		} else if t.TokenType == xml.StartTagToken {
+			level++
 		}
 	}
 }

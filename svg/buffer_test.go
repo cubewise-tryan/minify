@@ -1,12 +1,12 @@
-package svg // import "github.com/tdewolff/minify/svg"
+package svg
 
 import (
 	"bytes"
 	"strconv"
 	"testing"
 
-	"github.com/tdewolff/parse/svg"
-	"github.com/tdewolff/parse/xml"
+	"github.com/tdewolff/parse/v2/svg"
+	"github.com/tdewolff/parse/v2/xml"
 	"github.com/tdewolff/test"
 )
 
@@ -44,7 +44,7 @@ func TestAttributes(t *testing.T) {
 	tb := NewTokenBuffer(l)
 	tb.Shift()
 	for k := 0; k < 2; k++ { // run twice to ensure similar results
-		attrs, _ := tb.Attributes(svg.X, svg.Y, svg.Width, svg.Height, svg.Rx, svg.Ry)
+		attrs := tb.Attributes(svg.X, svg.Y, svg.Width, svg.Height, svg.Rx, svg.Ry)
 		for i := 0; i < 6; i++ {
 			test.That(t, attrs[i] != nil, "attr must not be nil")
 			val := string(attrs[i].AttrVal)

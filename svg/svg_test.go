@@ -1,4 +1,4 @@
-package svg // import "github.com/tdewolff/minify/svg"
+package svg
 
 import (
 	"bytes"
@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tdewolff/minify"
-	"github.com/tdewolff/minify/css"
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/minify/v2/css"
 	"github.com/tdewolff/test"
 )
 
@@ -29,6 +29,7 @@ func TestSVG(t *testing.T) {
 		{`<svg version="1.0"></svg>`, `<svg version="1.0"/>`},
 		{`<svg version="1.1" x="0" y="0px" width="100%" height="100%"><path/></svg>`, `<svg><path/></svg>`},
 		{`<path x="a"> </path>`, `<path x="a"/>`},
+		{`<path x=""> </path>`, `<path/>`},
 		{`<path x=" a "/>`, `<path x="a"/>`},
 		{"<path x=\" a \n b \"/>", `<path x="a b"/>`},
 		{`<path x="5.0px" y="0%"/>`, `<path x="5" y="0"/>`},
@@ -41,21 +42,17 @@ func TestSVG(t *testing.T) {
 		{`<path d="M20 20l-10-10z"/>`, `<path d="M20 20 10 10z"/>`},
 		{`<?xml version="1.0" encoding="utf-8"?>`, ``},
 		{`<svg viewbox="0 0 16 16"><path/></svg>`, `<svg viewbox="0 0 16 16"><path/></svg>`},
-		{`<g></g>`, ``},
-		{`<g><path/></g>`, `<path/>`},
-		{`<g id="a"><g><path/></g></g>`, `<g id="a"><path/></g>`},
+		{`<g></g>`, `<g/>`},
+		{`<g><path/></g>`, `<g><path/></g>`},
+		{`<g id="a"><g><path/></g></g>`, `<g id="a"><g><path/></g></g>`},
 		{`<path fill="#ffffff"/>`, `<path fill="#fff"/>`},
 		{`<path fill="#fff"/>`, `<path fill="#fff"/>`},
 		{`<path fill="white"/>`, `<path fill="#fff"/>`},
 		{`<path fill="#ff0000"/>`, `<path fill="red"/>`},
-		{`<line x1="5" y1="10" x2="20" y2="40"/>`, `<path d="M5 10 20 40z"/>`},
-		{`<rect x="5" y="10" width="20" height="40"/>`, `<path d="M5 10h20v40H5z"/>`},
-		{`<rect x="-5.669" y="147.402" fill="#843733" width="252.279" height="14.177"/>`, `<path fill="#843733" d="M-5.669 147.402h252.279v14.177H-5.669z"/>`},
-		{`<rect x="5" y="10" rx="2" ry="3"/>`, `<rect x="5" y="10" rx="2" ry="3"/>`},
+		{`<rect x="5" y="10" rx="2" ry="3">`, ``},
 		{`<rect x="5" y="10" height="40"/>`, ``},
-		{`<rect x="5" y="10" width="30" height="0"/>`, ``},
-		{`<polygon points="1,2 3,4"/>`, `<path d="M1 2 3 4z"/>`},
-		{`<polyline points="1,2 3,4"/>`, `<path d="M1 2 3 4"/>`},
+		{`<rect x="5" y="10" width="30" height="0%"/>`, ``},
+		{`<rect x="5" y="10" width="30%" height="100%"/>`, `<rect x="5" y="10" width="30%" height="100%"/>`},
 		{`<svg contentStyleType="text/json ; charset=iso-8859-1"><style>{a : true}</style></svg>`, `<svg contentStyleType="text/json;charset=iso-8859-1"><style>{a : true}</style></svg>`},
 		{`<metadata><dc:title /></metadata>`, ``},
 
@@ -64,9 +61,12 @@ func TestSVG(t *testing.T) {
 
 		{`<polygon fill="none" stroke="#000" points="-0.1,"/>`, `<polygon fill="none" stroke="#000" points="-0.1,"/>`}, // #45
 		{`<path stroke="url(#UPPERCASE)"/>`, `<path stroke="url(#UPPERCASE)"/>`},                                       // #117
+		{`<rect height="10"/><path/>`, `<path/>`},                                                                      // #244
+		{`<rect height="10"><path/></rect>`, ``},                                                                       // #244
+		{`<rect height="10"><path/></g>`, ``},                                                                          // #244
 
 		// go fuzz
-		{`<0 d=09e9.6e-9e0`, `<0 d=""`},
+		{`<0 d=09e9.6e-9e0`, `<0 d="09e9.6e-9e0"`},
 		{`<line`, `<line`},
 	}
 

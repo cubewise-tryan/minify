@@ -13,60 +13,44 @@ Run the following command
 
 and the `minify` command will be in your `$GOPATH/bin`.
 
+You can enable bash tab completion by using
+
+    source minify_bash_tab_completion
+
 ## Usage
+    Usage: minify [options] [input]
 
-	Usage: minify [options] [input]
+    Options:
+      -a, --all                              Minify all files, including hidden files and files in hidden directories
+          --css-decimals int                 Number of decimals to preserve in numbers, -1 is all (default -1)
+      -h, --help                             Show usage
+          --html-keep-conditional-comments   Preserve all IE conditional comments
+          --html-keep-default-attrvals       Preserve default attribute values
+          --html-keep-document-tags          Preserve html, head and body tags
+          --html-keep-end-tags               Preserve all end tags
+          --html-keep-whitespace             Preserve whitespace characters but still collapse multiple into one
+      -l, --list                             List all accepted filetypes
+          --match string                     Filename pattern matching using regular expressions
+          --mime string                      Mimetype (eg. text/css), optional for input filenames, has precedence over -type
+      -o, --output string                    Output file or directory (must have trailing slash), leave blank to use stdout
+      -r, --recursive                        Recursively minify directories
+          --svg-decimals int                 Number of decimals to preserve in numbers, -1 is all (default -1)
+          --type string                      Filetype (eg. css), optional for input filenames
+          --url string                       URL of file to enable URL minification
+      -v, --verbose                          Verbose
+          --version                          Version
+      -w, --watch                            Watch files and minify upon changes
+          --xml-keep-whitespace              Preserve whitespace characters but still collapse multiple into one
 
-	Options:
-	  -a, --all
-	        Minify all files, including hidden files and files in hidden directories
-	  -l, --list
-	        List all accepted filetypes
-	  --match string
-	        Filename pattern matching using regular expressions, see https://github.com/google/re2/wiki/Syntax
-	  --mime string
-	        Mimetype (text/css, application/javascript, ...), optional for input filenames, has precedence over -type
-	  -o, --output string
-	        Output file or directory (must have trailing slash), leave blank to use stdout
-	  -r, --recursive
-	        Recursively minify directories
-	  --type string
-	        Filetype (css, html, js, ...), optional for input filenames
-	  -u, --update
-	        Update binary
-	  --url string
-	        URL of file to enable URL minification
-	  -v, --verbose
-	        Verbose
-	  -w, --watch
-	        Watch files and minify upon changes
-
-	  --css-decimals
-	        Number of decimals to preserve in numbers, -1 is all
-	  --html-keep-conditional-comments
-	  		Preserve all IE conditional comments
-	  --html-keep-default-attrvals
-	        Preserve default attribute values
-	  --html-keep-document-tags
-	        Preserve html, head and body tags
-	  --html-keep-end-tags
-	        Preserve all end tags
-	  --html-keep-whitespace
-	        Preserve whitespace characters but still collapse multiple into one
-	  --svg-decimals
-	        Number of decimals to preserve in numbers, -1 is all
-	  --xml-keep-whitespace
-	        Preserve whitespace characters but still collapse multiple into one
-
-	Input:
-	  Files or directories, leave blank to use stdin
+    Input:
+      Files or directories, leave blank to use stdin
 
 ### Types
 
 	css     text/css
 	htm     text/html
 	html    text/html
-	js      text/javascript
+	js      application/javascript
 	json    application/json
 	svg     image/svg+xml
 	xml     text/xml
@@ -89,7 +73,7 @@ $ minify --type=html -o index-min.tpl index.tpl
 
 You need to set the type or the mimetype option when using standard input:
 ```sh
-$ minify --mime=text/javascript < script.js > script-min.js
+$ minify --mime=application/javascript < script.js > script-min.js
 
 $ cat script.js | minify --type=js > script-min.js
 ```

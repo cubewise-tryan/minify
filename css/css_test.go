@@ -1,4 +1,4 @@
-package css // import "github.com/tdewolff/minify/css"
+package css
 
 import (
 	"bytes"
@@ -6,7 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tdewolff/minify"
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/parse/v2/css"
 	"github.com/tdewolff/test"
 )
 
@@ -17,15 +18,19 @@ func TestCSS(t *testing.T) {
 	}{
 		{"/*comment*/", ""},
 		{"/*! bang  comment */", "/*!bang comment*/"},
+		{"a;", "a"},
 		{"i{}/*! bang  comment */", "i{}/*!bang comment*/"},
 		{"i { key: value; key2: value; }", "i{key:value;key2:value}"},
 		{".cla .ss > #id { x:y; }", ".cla .ss>#id{x:y}"},
 		{".cla[id ^= L] { x:y; }", ".cla[id^=L]{x:y}"},
 		{"area:focus { outline : 0;}", "area:focus{outline:0}"},
 		{"@import 'file';", "@import 'file'"},
+		{"@import url('file');", "@import 'file'"},
+		{"@import url(//url);", `@import "//url"`},
 		{"@font-face { x:y; }", "@font-face{x:y}"},
 
 		{"input[type=\"radio\"]{x:y}", "input[type=radio]{x:y}"},
+		{"input[type=\"radio\" i]{x:y}", "input[type=radio i]{x:y}"},
 		{"DIV{margin:1em}", "div{margin:1em}"},
 		{".CLASS{margin:1em}", ".CLASS{margin:1em}"},
 		{"@MEDIA all{}", "@media all{}"},
@@ -34,6 +39,7 @@ func TestCSS(t *testing.T) {
 		{"[class^=icon-] i[class^=icon-],i[class*=\" icon-\"]{x:y}", "[class^=icon-] i[class^=icon-],i[class*=\" icon-\"]{x:y}"},
 		{"html{line-height:1;}html{line-height:1;}", "html{line-height:1}html{line-height:1}"},
 		{"a { b: 1", "a{b:1}"},
+		{"@unknown { border:1px solid #000 }", "@unknown{border:1px solid #000 }"},
 
 		{":root { --custom-variable:0px; }", ":root{--custom-variable:0px}"},
 
@@ -51,6 +57,11 @@ func TestCSS(t *testing.T) {
 		// go-fuzz
 		{"input[type=\"\x00\"] {  a: b\n}.a{}", "input[type=\"\x00\"]{a:b}.a{}"},
 		{"a{a:)'''", "a{a:)'''}"},
+		{"{T:l(", "{t:l(}"},
+		{"{background:0 0 0", "{background:0 0}"},
+		{"{d:url( \n  \n\t0", "{d:url()}"},
+		{"{d:urL(     '0", `{d:url("'")}`},
+		{`{-ms-filter:"`, `{-ms-filter:"}`},
 	}
 
 	m := minify.New()
@@ -62,6 +73,10 @@ func TestCSS(t *testing.T) {
 			test.Minify(t, tt.css, err, w.String(), tt.expected)
 		})
 	}
+
+	// coverage
+	test.T(t, Token{css.IdentToken, []byte("data"), nil}.String(), "Ident(data)")
+	test.T(t, Token{css.FunctionToken, nil, []css.Token{{css.IdentToken, []byte("data")}}}.String(), "[Ident('data')]")
 }
 
 func TestCSSInline(t *testing.T) {
@@ -71,31 +86,103 @@ func TestCSSInline(t *testing.T) {
 	}{
 		{"/*comment*/", ""},
 		{"/*! bang  comment */", ""},
+		{"}", "}"},
 		{";", ""},
 		{"empty:", "empty:"},
 		{"key: value;", "key:value"},
 		{"margin: 0 1; padding: 0 1;", "margin:0 1;padding:0 1"},
 		{"color: #FF0000;", "color:red"},
 		{"color: #000000;", "color:#000"},
+		{"color: #aabbccdd;", "color:#abcd"},
+		{"color: #aabbccff;", "color:#abc"},
+		{"color: #aabbcc00;", "color:#0000"},
 		{"color: black;", "color:#000"},
 		{"color: rgb(255,255,255);", "color:#fff"},
 		{"color: rgb(100%,100%,100%);", "color:#fff"},
 		{"color: rgba(255,0,0,1);", "color:red"},
 		{"color: rgba(255,0,0,2);", "color:red"},
-		{"color: rgba(255,0,0,0.5);", "color:rgba(255,0,0,.5)"},
-		{"color: rgba(255,0,0,-1);", "color:transparent"},
-		{"color: rgba(0%,15%,25%,0.2);", "color:rgba(0%,15%,25%,.2)"},
-		{"color: rgba(0,0,0,0.5);", "color:rgba(0,0,0,.5)"},
-		{"color: hsla(5,0%,10%,0.75);", "color:hsla(5,0%,10%,.75)"},
+		{"color: rgba(255,0,0,0.5);", "color:rgba(255,0,0,.5)"}, // {"color: rgba(255,0,0,0.5);", "color:#ff000080"},
+		{"color: rgba(255,0,0,-1);", "color:transparent"},       // {"color: rgba(255,0,0,-1);", "color:#0000"},
+		// {"color: rgba(0%,15%,25%,0.2);", "color:rgba(0,15%,25%,.2)"}, TODO: zero percentage to zero // {"color: rgba(0%,15%,25%,0.2);", "color:#00264033"},
+		{"color: rgba(0,0,0,0.5);", "color:rgba(0,0,0,.5)"},                 // {"color: rgba(0,0,0,0.5);", "color:#00000080"},
+		{"color: rgba(0,0,0,0.264705882);", "color:rgba(0,0,0,.264705882)"}, // {"color: rgba(0,0,0,0.264705882);", "color:#0004"},
+		{"color: rgb(255 0 0 / 1);", "color:red"},
+		{"color: hsla(5,0%,10%,0.75);", "color:hsla(5,0%,10%,.75)"}, // {"color: hsla(5,0%,10%,0.75);", "color:#1a1a1abf"},
 		{"color: hsl(0,100%,50%);", "color:red"},
 		{"color: hsla(1,2%,3%,1);", "color:#080807"},
-		{"color: hsla(1,2%,3%,0);", "color:transparent"},
+		{"color: hsla(1,2%,3%,0);", "color:transparent"}, // {"color: hsla(1,2%,3%,0);", "color:#0000"},
 		{"color: hsl(48,100%,50%);", "color:#fc0"},
+		{"color: hsl(0 100% 50% / 1);", "color:red"},
+		{"color: hsl(400, 150%, 150%, 2);", "color:#fff"},
+		{"background-position:top", "background-position:top"},
+		{"background-position:bottom", "background-position:bottom"},
+		{"background-position:center", "background-position:50%"},
+		{"background-position:left 50%", "background-position:0"},
+		{"background-position:center center", "background-position:50%"},
+		{"background-position:center bottom", "background-position:50% 100%"},
+		{"background-position:top right", "background-position:100% 0"},
+		{"background-position:bottom left", "background-position:0 100%"},
+		{"background-position:top center", "background-position:50% 0"},
+		{"background-position:bottom center", "background-position:50% 100%"},
+		{"background-position:bottom 5% right 0%", "background-position:100% 95%"},
+		{"background-position:bottom 0 right 10%", "background-position:90% 100%"},
+		{"background-position:top 10% left 5%", "background-position:5% 10%"},
+		{"background-position:top 10% left", "background-position:0 10%"},
+		{"background-position:left 10% top", "background-position:10% 0"},
+		{"background-position:center left 5%", "background-position:5%"},
+		{"background-position:center right 10%", "background-position:90%"},
+		{"background-position:right .75rem center", "background-position:right .75rem center"},
+		{"background-position:right 50% bottom 50%", "background-position:50%"},
+		{"background-position:right 100% bottom 100%", "background-position:0 0"},
+		{"background-position:left 1% center", "background-position:1%"},
+		{"background-position:center top 1%", "background-position:50% 1%"},
+		{"background-position:right 0 top 0", "background-position:100% 0"},
+		{"background-repeat:space space", "background-repeat:space"},
+		{"background-repeat:round round", "background-repeat:round"},
+		{"background-repeat:repeat repeat", "background-repeat:repeat"},
+		{"background-repeat:no-repeat no-repeat", "background-repeat:no-repeat"},
+		{"background-repeat:repeat no-repeat", "background-repeat:repeat-x"},
+		{"background-repeat:no-repeat repeat", "background-repeat:repeat-y"},
+		{"background-size:auto auto", "background-size:auto"},
+		{"background-size:30% auto", "background-size:30%"},
+		{"background:red", "background:red"},
+		{"background:red none", "background:red"},
+		{"background:red none 0 0", "background:red"},
+		{"background:red none 1 1", "background:red 1 1"},
+		{"background:#0000 1 1", "background:1 1"},
+		{"background:transparent", "background:0 0"},
+		{"background:transparent no-repeat", "background:no-repeat"},
+		{"background:#0000 none padding-box 0 0 / auto auto scroll border-box repeat repeat", "background:0 0"},
+		{"background:0 0 / auto", "background:0 0"},
+		{"background:0 0 / auto 10%", "background:0 0/auto 10%"},
+		{"background:0% 0%", "background:0 0"},
+		{"background:left top", "background:0 0"},
+		{"background:no-repeat repeat", "background:repeat-y"},
+		{"background:top right", "background:100% 0"},
+		{"background:bottom left", "background:0 100%"},
+		{"background:#fff url(foo.svg) no-repeat right .75rem center / auto calc(100% - 1.5rem)", "background:#fff url(foo.svg)no-repeat right .75rem center/auto calc(100% - 1.5rem)"},
+		{"background:#fff / 5% auto", "background:#fff/5%"},
+		{"background:#fff / auto 5%", "background:#fff/auto 5%"},
+		{"background:calc(5%-2%) center", "background:calc(5%-2%)"},
 		{"font-weight: bold; font-weight: normal;", "font-weight:700;font-weight:400"},
-		{"font: bold \"Times new Roman\",\"Sans-Serif\";", "font:700 times new roman,\"sans-serif\""},
-		{"outline: none;", "outline:0"},
-		{"outline: none !important;", "outline:0!important"},
-		{"border-left: none;", "border-left:0"},
+		{"font: caption;", "font:caption"},
+		{"font: bold 5px \"Times new Roman\",\"Sans-Serif\";", "font:700 5px times new roman,sans-serif"},
+		{"font: bold xx-small times new roman;", "font:700 xx-small times new roman"},
+		{"font: normal normal normal normal 20px normal", "font:20px normal"},
+		{"font:27px/13px arial,sans-serif", "font:27px/13px arial,sans-serif"},
+		{"font:normal normal bold normal medium/normal arial,sans-serif", "font:700 medium arial,sans-serif"},
+		{"font:400 medium/normal 'Arial'", "font:medium arial"},
+		{"font:medium/normal 'Arial'", "font:medium arial"},
+		{"font-family:'Arial', 'Times New Roman';", "font-family:arial,times new roman"},
+		{"font-family:'a  b';", "font-family:'a  b'"},
+		{"outline: none;", "outline:none"},
+		{"outline: solid black 0;", "outline:solid #000 0"},
+		{"outline: none black medium;", "outline:#000"},
+		{"outline: none !important;", "outline:none!important"},
+		{"border-left: none;", "border-left:none"},
+		{"border-left: none 0;", "border-left:0"},
+		{"border-left: none medium currentcolor;", "border-left:none"},
+		{"border-left: 0 dashed red;", "border-left:0 dashed red"},
 		{"margin: 1 1 1 1;", "margin:1"},
 		{"margin: 1 2 1 2;", "margin:1 2"},
 		{"margin: 1 2 3 2;", "margin:1 2 3"},
@@ -104,16 +191,13 @@ func TestCSSInline(t *testing.T) {
 		{"margin: 1 1 1 1 !important;", "margin:1!important"},
 		{"padding:.2em .4em .2em", "padding:.2em .4em"},
 		{"margin: 0em;", "margin:0"},
-		{"font-family:'Arial', 'Times New Roman';", "font-family:arial,times new roman"},
-		{"background:url('http://domain.com/image.png');", "background:url(http://domain.com/image.png)"},
-		{"background:url( 'http://domain.com/image.png' );", "background:url(http://domain.com/image.png)"},
 		{"filter: progid : DXImageTransform.Microsoft.BasicImage(rotation=1);", "filter:progid:DXImageTransform.Microsoft.BasicImage(rotation=1)"},
 		{"filter: progid:DXImageTransform.Microsoft.Alpha(Opacity=0);", "filter:alpha(opacity=0)"},
 		{"content: \"a\\\nb\";", "content:\"ab\""},
 		{"content: \"a\\\r\nb\\\r\nc\";", "content:\"abc\""},
 		{"content: \"\";", "content:\"\""},
+		{"x: white , white", "x:#fff,#fff"},
 
-		{"font:27px/13px arial,sans-serif", "font:27px/13px arial,sans-serif"},
 		{"text-decoration: none !important", "text-decoration:none!important"},
 		{"color:#fff", "color:#fff"},
 		{"border:2px rgb(255,255,255);", "border:2px #fff"},
@@ -132,20 +216,29 @@ func TestCSSInline(t *testing.T) {
 		//{"color:CYAN", "color:cyan"}, // TODO
 		{"width:attr(Name em)", "width:attr(Name em)"},
 		{"content:CounterName", "content:CounterName"},
+		{"background:url('http://domain.com/image.png');", "background:url(http://domain.com/image.png)"},
+		{"background:url( 'http://domain.com/image.png' );", "background:url(http://domain.com/image.png)"},
 		{"background:URL(x.PNG);", "background:url(x.PNG)"},
 		{"background:url(/*nocomment*/)", "background:url(/*nocomment*/)"},
 		{"background:url(data:,text)", "background:url(data:,text)"},
 		{"background:url('data:text/xml; version = 2.0,content')", "background:url(data:text/xml;version=2.0,content)"},
 		{"background:url('data:\\'\",text')", "background:url('data:\\'\",text')"},
 		{"margin:0 0 18px 0;", "margin:0 0 18px"},
-		{"background:none", "background:0 0"},
-		{"background:none 1 1", "background:none 1 1"},
 		{"z-index:1000", "z-index:1000"},
+		{"box-shadow:0 0 0 0", "box-shadow:0 0"},
+		{"flex:0px", "flex:0px"},
+		{"g:url('abc\\\ndef')", "g:url(abcdef)"},
+		{"url:local('abc\\\ndef')", "url:local(abcdef)"},
+		{"url:local('abc def') , url('abc def') format('truetype')", "url:local('abc def'),url('abc def')format('truetype')"},
 
 		{"any:0deg 0s 0ms 0dpi 0dpcm 0dppx 0hz 0khz", "any:0 0s 0ms 0dpi 0dpcm 0dppx 0hz 0khz"},
+		{"width:calc(0%-0px)", "width:calc(0%-0px)"},
+		{"margin:calc(10px) calc(20px)", "margin:calc(10px)calc(20px)"},
+		{"border-left:0 none", "border-left:0"},
 		{"--custom-variable:0px;", "--custom-variable:0px"},
 		{"--foo: if(x > 5) this.width = 10", "--foo: if(x > 5) this.width = 10"},
 		{"--foo: ;", "--foo: "},
+		{"color=blue;", "color=blue"},
 
 		// case sensitivity
 		{"animation:Ident", "animation:Ident"},
@@ -157,14 +250,19 @@ func TestCSSInline(t *testing.T) {
 		{"margin: 1 1 1;", "margin:1"},
 		{"margin: 1 2 1;", "margin:1 2"},
 		{"margin: 1 2 3;", "margin:1 2 3"},
-		{"margin: 0%;", "margin:0"},
+		// {"margin: 0%;", "margin:0"}, // TODO
 		{"color: rgb(255,64,64);", "color:#ff4040"},
 		{"color: rgb(256,-34,2342435);", "color:#f0f"},
 		{"color: rgb(120%,-45%,234234234%);", "color:#f0f"},
 		{"color: rgb(0, 1, ident);", "color:rgb(0,1,ident)"},
 		{"color: rgb(ident);", "color:rgb(ident)"},
+		{"color: hsl(0,-1%,-1%);", "color:#000"},
 		{"margin: rgb(ident);", "margin:rgb(ident)"},
 		{"filter: progid:b().c.Alpha(rgba(x));", "filter:progid:b().c.Alpha(rgba(x))"},
+		{"margin: rgb((brackets));", "margin:rgb((brackets))"},
+
+		// bugs
+		{"background: linear-gradient(-180deg, #355FFF 0%, #1F52FF 100%) 0% 0% / cover", "background:linear-gradient(-180deg,#355FFF 0%,#1F52FF 100%)0 0/cover"}, // #263
 
 		// go-fuzz
 		{"FONT-FAMILY: ru\"", "font-family:ru\""},
@@ -177,6 +275,27 @@ func TestCSSInline(t *testing.T) {
 			r := bytes.NewBufferString(tt.css)
 			w := &bytes.Buffer{}
 			err := Minify(m, w, r, params)
+			test.Minify(t, tt.css, err, w.String(), tt.expected)
+		})
+	}
+}
+
+func TestCSSKeepCSS2(t *testing.T) {
+	tests := []struct {
+		css      string
+		expected string
+	}{
+		{`margin:5000em`, `margin:5000em`},
+	}
+
+	m := minify.New()
+	params := map[string]string{"inline": "1"}
+	cssMinifier := &Minifier{Decimals: -1, KeepCSS2: true}
+	for _, tt := range tests {
+		t.Run(tt.css, func(t *testing.T) {
+			r := bytes.NewBufferString(tt.css)
+			w := &bytes.Buffer{}
+			err := cssMinifier.Minify(m, w, r, params)
 			test.Minify(t, tt.css, err, w.String(), tt.expected)
 		})
 	}
@@ -208,6 +327,12 @@ func TestWriterErrors(t *testing.T) {
 		{`a{--var:val}`, []int{2, 3, 4}},
 		{`a{*color:0}`, []int{2, 3}},
 		{`a{color:0;baddecl 5}`, []int{5}},
+		{`a[id="x" i],b{color:0}`, []int{5, 8}},
+		{`a{color:()!important}`, []int{4, 6}},
+		{`a{margin:5 4}`, []int{5}},
+		{`a{margin=5}`, []int{2, 3}},
+		{`a;`, []int{0}},
+		{`a{000}`, []int{2}},
 	}
 
 	m := minify.New()

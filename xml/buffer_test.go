@@ -1,10 +1,10 @@
-package xml // import "github.com/tdewolff/minify/xml"
+package xml
 
 import (
 	"bytes"
 	"testing"
 
-	"github.com/tdewolff/parse/xml"
+	"github.com/tdewolff/parse/v2/xml"
 	"github.com/tdewolff/test"
 )
 

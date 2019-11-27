@@ -3,13 +3,15 @@ package benchmarks
 import (
 	"testing"
 
-	"github.com/tdewolff/minify/svg"
+	"github.com/tdewolff/minify/v2/svg"
 )
 
 var svgSamples = []string{
 	"sample_arctic.svg",
 	"sample_gopher.svg",
 	"sample_usa.svg",
+	"sample_car.svg",
+	"sample_tiger.svg",
 }
 
 func init() {
